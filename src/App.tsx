@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Navbar from './components/Navbar';
 
@@ -23,10 +23,17 @@ function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: 
   return <>{children}</>;
 }
 
+// Only show the old Navbar on dashboard/auth pages, NOT on the landing page
+// (Landing has its own built-in navbar)
+const NO_NAVBAR_PATHS = ['/'];
+
 function AppRoutes() {
+  const location = useLocation();
+  const showNavbar = !NO_NAVBAR_PATHS.includes(location.pathname);
+
   return (
     <>
-      <Navbar />
+      {showNavbar && <Navbar />}
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />

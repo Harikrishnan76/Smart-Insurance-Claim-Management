@@ -29,11 +29,20 @@ export default function ClaimDetails() {
 
   const takeAction = async (action: 'Approve' | 'Reject' | 'Request') => {
     setActionLoading(action);
+    const statusMap: Record<string, string> = {
+      'Approve': 'Approved',
+      'Reject': 'Rejected',
+      'Request': 'Document Requested',
+    };
+    const newStatus = statusMap[action];
     await apiService.updateClaimStatus(claim.claimId, action);
-    if (action === 'Approve') updateClaim(claim.claimId, { claimStatus: 'Approved' });
-    else if (action === 'Reject') updateClaim(claim.claimId, { claimStatus: 'Rejected' });
+    updateClaim(claim.claimId, { claimStatus: newStatus });
     setActionLoading('');
-    setActionMsg(action === 'Approve' ? 'Claim approved successfully.' : action === 'Reject' ? 'Claim rejected.' : 'Document request sent to customer.');
+    setActionMsg(
+      action === 'Approve' ? 'Claim approved successfully. Settlement will be processed in 3-5 business days.' :
+      action === 'Reject' ? 'Claim rejected. Customer has been notified.' :
+      'Document request sent to customer.'
+    );
   };
 
   const SectionTitle = ({ t }: { t: string }) => (

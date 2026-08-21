@@ -42,7 +42,7 @@ export default function Register() {
     if (!res.success) { setError(res.message || 'Registration failed.'); return; }
 
     setSuccess(true);
-    setUser({
+    setUser(res.user || {
       id: 'CUST' + Date.now(), name: form.name, email: form.email, mobile: form.mobile,
       address: form.address, city: form.city, state: form.state, pincode: form.pincode, role: 'customer',
     });

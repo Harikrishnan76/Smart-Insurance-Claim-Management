@@ -21,17 +21,22 @@ export default function Login() {
     setLoading(false);
     if (!res.success) { setError(res.message || 'Invalid credentials.'); return; }
 
-    const demoUser = DEMO_USERS[form.email];
-    if (demoUser) {
-      setUser(demoUser);
-      navigate(demoUser.role === 'admin' ? '/admin' : '/customer');
+    // Use user from backend JWT response, or fallback to DEMO_USERS when offline
+    if (res.user) {
+      setUser(res.user);
+      navigate(res.user.role === 'admin' ? '/admin' : '/customer');
     } else {
-      // New registered user — treat as customer
-      setUser({
-        id: 'CUST' + Date.now(), name: form.email.split('@')[0], email: form.email,
-        mobile: '', address: '', city: '', state: '', pincode: '', role: 'customer',
-      });
-      navigate('/customer');
+      const demoUser = DEMO_USERS[form.email];
+      if (demoUser) {
+        setUser(demoUser);
+        navigate(demoUser.role === 'admin' ? '/admin' : '/customer');
+      } else {
+        setUser({
+          id: 'CUST' + Date.now(), name: form.email.split('@')[0], email: form.email,
+          mobile: '', address: '', city: '', state: '', pincode: '', role: 'customer',
+        });
+        navigate('/customer');
+      }
     }
   };
 
