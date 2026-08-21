@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Car, FileText, Camera } from 'lucide-react';
+import { Upload, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Car, FileText, X, File, Image, FileBadge } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { CustomerSidebar } from '../../components/Sidebar';
 import { apiService } from '../../services/api';
@@ -46,7 +46,48 @@ export default function ClaimForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<Claim | null>(null);
-  const [uploadedDocs, setUploadedDocs] = useState<Record<string, boolean>>({});
+
+  type UploadedFile = { file: File; preview?: string };
+  const [uploadedDocs, setUploadedDocs] = useState<Record<string, UploadedFile>>({});
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+  const MAX_SIZE_MB = 10;
+
+  const handleFileSelect = useCallback((key: string, file: File | undefined) => {
+    if (!file) return;
+    const newErrors = { ...uploadErrors };
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      newErrors[key] = 'Invalid format. Use PDF, PNG, or JPG.';
+      setUploadErrors(newErrors);
+      return;
+    }
+    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+      newErrors[key] = `File too large. Max ${MAX_SIZE_MB}MB.`;
+      setUploadErrors(newErrors);
+      return;
+    }
+    delete newErrors[key];
+    setUploadErrors(newErrors);
+    const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+    setUploadedDocs(u => ({ ...u, [key]: { file, preview } }));
+  }, [uploadErrors]);
+
+  const removeFile = useCallback((key: string) => {
+    setUploadedDocs(u => { const n = { ...u }; if (n[key]?.preview) URL.revokeObjectURL(n[key].preview!); delete n[key]; return n; });
+    setUploadErrors(e => { const n = { ...e }; delete n[key]; return n; });
+    if (inputRefs.current[key]) inputRefs.current[key]!.value = '';
+  }, []);
+
+  const formatSize = (bytes: number) => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+  const FileIcon = ({ type }: { type: string }) => {
+    if (type === 'application/pdf') return <FileBadge size={20} style={{ color: '#ef4444' }} />;
+    if (type.startsWith('image/')) return <Image size={20} style={{ color: '#22d3ee' }} />;
+    return <File size={20} style={{ color: 'var(--primary-light)' }} />;
+  };
 
   const [form, setForm] = useState({
     policyNumber: 'POL10025',
@@ -99,7 +140,7 @@ export default function ClaimForm() {
       claimAmount: parseFloat(form.claimAmount),
       injuryInvolved: form.injuryInvolved === 'yes',
       policeReportAvailable: form.policeReportAvailable === 'yes',
-      documents: docs.filter(d => uploadedDocs[d.key]).map(d => d.label),
+      documents: docs.filter(d => uploadedDocs[d.key]).map(d => d.label + ' (' + uploadedDocs[d.key].file.name + ')'),
     };
     const claim = await apiService.submitClaim(claimData);
     addClaim(claim);
@@ -237,28 +278,128 @@ export default function ClaimForm() {
           {/* Step 3: Documents */}
           {step === 3 && (
             <div className="fade-in">
-              <h3 style={{ fontSize:18, fontWeight:700, marginBottom:8 }}>Section D — Document Upload</h3>
-              <p className="text-muted text-sm mb-6">Upload supporting documents. Required fields are marked with *</p>
-              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                {docs.map(d => (
-                  <div key={d.key} className={`upload-area ${uploadedDocs[d.key] ? 'uploaded' : ''}`}
-                    onClick={() => setUploadedDocs(u => ({ ...u, [d.key]: !u[d.key] }))}>
-                    <div>
-                      <div className="upload-label">{d.label} {d.required ? '*' : ''}</div>
-                      {d.conditional && <div className="upload-sub">{d.conditional}</div>}
-                      {uploadedDocs[d.key] && <div style={{ fontSize:11, color:'#10b981', marginTop:2, fontWeight:600 }}>✓ File selected</div>}
-                    </div>
-                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      {uploadedDocs[d.key]
-                        ? <span className="badge badge-success"><CheckCircle size={12} /> Uploaded</span>
-                        : <span className="btn btn-secondary btn-sm"><Upload size={14} /> Choose File</span>}
-                    </div>
-                  </div>
-                ))}
+              <h3 style={{ fontSize:18, fontWeight:700, marginBottom:4 }}>Section D — Document Upload</h3>
+              <p className="text-muted text-sm mb-6">Drag & drop or click to upload. Accepted: PDF, PNG, JPG — Max 10 MB each.</p>
+
+              {/* Progress bar */}
+              <div style={{ marginBottom:20 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'var(--text-secondary)', marginBottom:6 }}>
+                  <span>Upload Progress</span>
+                  <span style={{ fontWeight:700, color:'var(--primary-light)' }}>
+                    {docs.filter(d => uploadedDocs[d.key]).length} / {docs.filter(d => d.required).length} required
+                  </span>
+                </div>
+                <div style={{ height:6, background:'var(--bg-surface)', borderRadius:99, overflow:'hidden' }}>
+                  <div style={{
+                    height:'100%', borderRadius:99,
+                    width: `${(docs.filter(d => d.required && uploadedDocs[d.key]).length / docs.filter(d => d.required).length) * 100}%`,
+                    background:'linear-gradient(90deg, var(--primary), var(--accent))',
+                    transition:'width 0.5s cubic-bezier(0.4,0,0.2,1)'
+                  }} />
+                </div>
               </div>
-              <div className="alert alert-info mt-4">
-                <AlertCircle size={14} style={{ display:'inline', marginRight:6 }} />
-                Click on a document to toggle upload. In production, this connects to the Guidewire document service.
+
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                {docs.map(d => {
+                  const uploaded = uploadedDocs[d.key];
+                  const isDragging = dragOver === d.key;
+                  const err = uploadErrors[d.key];
+                  return (
+                    <div key={d.key}>
+                      <input
+                        ref={el => { inputRefs.current[d.key] = el; }}
+                        id={`file-input-${d.key}`}
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg"
+                        style={{ display:'none' }}
+                        onChange={e => handleFileSelect(d.key, e.target.files?.[0])}
+                      />
+
+                      {!uploaded ? (
+                        <div
+                          onDragOver={e => { e.preventDefault(); setDragOver(d.key); }}
+                          onDragLeave={() => setDragOver(null)}
+                          onDrop={e => { e.preventDefault(); setDragOver(null); handleFileSelect(d.key, e.dataTransfer.files?.[0]); }}
+                          onClick={() => inputRefs.current[d.key]?.click()}
+                          style={{
+                            border: `2px dashed ${isDragging ? 'var(--primary)' : err ? 'var(--danger)' : 'var(--border-light)'}`,
+                            borderRadius:12, padding:'18px 20px',
+                            background: isDragging ? 'rgba(99,102,241,0.08)' : err ? 'rgba(239,68,68,0.06)' : 'var(--bg-surface)',
+                            cursor:'pointer', transition:'all 0.2s',
+                            display:'flex', alignItems:'center', justifyContent:'space-between', gap:16,
+                          }}
+                        >
+                          <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+                            <div style={{ width:42, height:42, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center',
+                              background: isDragging ? 'rgba(99,102,241,0.2)' : 'var(--bg-card2)',
+                              border:'1px solid var(--border-light)', flexShrink:0 }}>
+                              <Upload size={18} style={{ color: isDragging ? 'var(--primary-light)' : 'var(--text-muted)' }} />
+                            </div>
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)' }}>
+                                {d.label} {d.required ? <span style={{ color:'var(--danger)' }}>*</span> : <span style={{ fontSize:11, color:'var(--text-muted)', fontWeight:400 }}>(optional)</span>}
+                              </div>
+                              {d.conditional && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>{d.conditional}</div>}
+                              {err && <div style={{ fontSize:11, color:'var(--danger)', marginTop:3, fontWeight:600 }}>⚠ {err}</div>}
+                            </div>
+                          </div>
+                          <span style={{ fontSize:12, color: isDragging ? 'var(--primary-light)' : 'var(--text-muted)', whiteSpace:'nowrap',
+                            fontWeight:500, padding:'6px 14px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg-card2)' }}>
+                            {isDragging ? '📂 Drop here' : 'Choose / Drop'}
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{
+                          border:'1px solid rgba(16,185,129,0.4)', borderRadius:12, padding:'14px 20px',
+                          background:'rgba(16,185,129,0.07)', display:'flex', alignItems:'center',
+                          justifyContent:'space-between', gap:12, animation:'fadeIn 0.3s ease',
+                        }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+                            {uploaded.preview ? (
+                              <img src={uploaded.preview} alt="preview"
+                                style={{ width:42, height:42, borderRadius:8, objectFit:'cover', border:'1px solid rgba(16,185,129,0.3)' }} />
+                            ) : (
+                              <div style={{ width:42, height:42, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center',
+                                background:'rgba(16,185,129,0.15)', border:'1px solid rgba(16,185,129,0.3)', flexShrink:0 }}>
+                                <FileIcon type={uploaded.file.type} />
+                              </div>
+                            )}
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                {uploaded.file.name}
+                              </div>
+                              <div style={{ display:'flex', gap:8, marginTop:3, alignItems:'center' }}>
+                                <span style={{ fontSize:11, color:'#10b981', fontWeight:600 }}>✓ {d.label}</span>
+                                <span style={{ fontSize:10, color:'var(--text-muted)' }}>•</span>
+                                <span style={{ fontSize:11, color:'var(--text-muted)' }}>{formatSize(uploaded.file.size)}</span>
+                                <span style={{ fontSize:10, color:'var(--text-muted)' }}>•</span>
+                                <span style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase' }}>
+                                  {uploaded.file.name.split('.').pop()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => removeFile(d.key)}
+                            title="Remove file"
+                            style={{ background:'rgba(239,68,68,0.12)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:8,
+                              width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center',
+                              cursor:'pointer', transition:'all 0.2s', flexShrink:0 }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.25)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.12)')}
+                          >
+                            <X size={14} color="#ef4444" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="alert alert-info mt-4" style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
+                <AlertCircle size={16} style={{ flexShrink:0, marginTop:1 }} />
+                <span>In production, uploaded files are securely transmitted to the <strong>Guidewire Document Management Service</strong>. Supported formats: PDF, PNG, JPG.</span>
               </div>
             </div>
           )}
