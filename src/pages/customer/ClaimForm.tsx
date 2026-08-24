@@ -1,10 +1,11 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Car, FileText, X, File, Image, FileBadge } from 'lucide-react';
+import { Upload, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Car, FileText, X, File, Image, FileBadge, ScanLine } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { CustomerSidebar } from '../../components/Sidebar';
 import { apiService } from '../../services/api';
 import { Claim } from '../../context/AppContext';
+import { OCRPanel, OCRResult } from '../../components/OCRPanel';
 
 const STEPS = ['Customer Info', 'Policy Details', 'Claim Details', 'Documents', 'Result'];
 
@@ -53,6 +54,74 @@ export default function ClaimForm() {
   const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // OCR state
+  const [ocrResults, setOcrResults] = useState<Record<string, OCRResult>>({});
+  const [ocrLoading, setOcrLoading] = useState<Record<string, boolean>>({});
+
+  const handleOCRAnalyze = useCallback(async (key: string) => {
+    const doc = uploadedDocs[key];
+    if (!doc) return;
+    setOcrLoading(s => ({ ...s, [key]: true }));
+    try {
+      const result = await apiService.analyzeDocument(doc.file, key);
+
+      if (result.verification_status === 'unreadable') {
+        // ── REJECT: auto-remove the file and show an error ──────────────
+        setOcrResults(r => { const n = { ...r }; delete n[key]; return n; });
+        setUploadedDocs(u => {
+          const n = { ...u };
+          if (n[key]?.preview) URL.revokeObjectURL(n[key].preview!);
+          delete n[key];
+          return n;
+        });
+        if (inputRefs.current[key]) inputRefs.current[key]!.value = '';
+        setUploadErrors(e => ({
+          ...e,
+          [key]: '⛔ Document rejected by OCR — unreadable or invalid. Please upload a clear, valid document.',
+        }));
+      } else {
+        // ── ACCEPT (verified or partial) ────────────────────────────────
+        setOcrResults(r => ({ ...r, [key]: result }));
+        if (result.verification_status === 'partial') {
+          setUploadErrors(e => ({
+            ...e,
+            [key]: '⚠ OCR partially verified this document. Please ensure it is correct before submitting.',
+          }));
+        } else {
+          // Clear any previous error on full verification
+          setUploadErrors(e => { const n = { ...e }; delete n[key]; return n; });
+        }
+      }
+    } catch {
+      setOcrResults(r => ({ ...r, [key]: {
+        success: false, doc_type: key, raw_text: '',
+        extracted_fields: {}, verification_status: 'unreadable',
+        verification_notes: ['OCR analysis failed — please try again'],
+      }}));
+      setUploadErrors(e => ({
+        ...e,
+        [key]: '⛔ OCR scan failed. Please try again or upload a clearer document.',
+      }));
+    } finally {
+      setOcrLoading(s => ({ ...s, [key]: false }));
+    }
+  }, [uploadedDocs]);
+
+  const handleOCRAutoFill = useCallback((fields: Record<string, string>) => {
+    const mapping: Record<string, string> = {
+      policy_number: 'policyNumber',
+      incident_date: 'incidentDate',
+      incident_location: 'incidentLocation',
+    };
+    const updates: Record<string, string> = {};
+    Object.entries(fields).forEach(([k, v]) => {
+      if (mapping[k]) updates[mapping[k]] = v;
+    });
+    if (Object.keys(updates).length > 0) {
+      setForm(f => ({ ...f, ...updates }));
+    }
+  }, []);
+
   const ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
   const MAX_SIZE_MB = 10;
 
@@ -71,6 +140,8 @@ export default function ClaimForm() {
     }
     delete newErrors[key];
     setUploadErrors(newErrors);
+    // Clear previous OCR result when a new file is selected
+    setOcrResults(r => { const n = { ...r }; delete n[key]; return n; });
     const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
     setUploadedDocs(u => ({ ...u, [key]: { file, preview } }));
   }, [uploadErrors]);
@@ -78,6 +149,7 @@ export default function ClaimForm() {
   const removeFile = useCallback((key: string) => {
     setUploadedDocs(u => { const n = { ...u }; if (n[key]?.preview) URL.revokeObjectURL(n[key].preview!); delete n[key]; return n; });
     setUploadErrors(e => { const n = { ...e }; delete n[key]; return n; });
+    setOcrResults(r => { const n = { ...r }; delete n[key]; return n; }); // clear OCR on removal
     if (inputRefs.current[key]) inputRefs.current[key]!.value = '';
   }, []);
 
@@ -133,6 +205,24 @@ export default function ClaimForm() {
   const prev = () => setStep(s => Math.max(s - 1, 0));
 
   const handleSubmit = async () => {
+    // Block submission if any uploaded doc has a failed OCR scan
+    const failedScans = docs.filter(d =>
+      uploadedDocs[d.key] &&
+      ocrResults[d.key] &&
+      ocrResults[d.key].verification_status === 'unreadable'
+    );
+    if (failedScans.length > 0) {
+      setError(`OCR verification failed for: ${failedScans.map(d => d.label).join(', ')}. Please remove and re-upload valid documents.`);
+      return;
+    }
+    // Warn if required docs haven't been scanned yet
+    const unscannedRequired = docs.filter(d =>
+      d.required && uploadedDocs[d.key] && !ocrResults[d.key]
+    );
+    if (unscannedRequired.length > 0) {
+      setError(`Please run OCR scan on: ${unscannedRequired.map(d => d.label).join(', ')} before submitting.`);
+      return;
+    }
     setLoading(true);
     const claimData = {
       customerId: user?.id || '', customerName: user?.name || '', email: user?.email || '', mobile: user?.mobile || '',
@@ -140,7 +230,9 @@ export default function ClaimForm() {
       claimAmount: parseFloat(form.claimAmount),
       injuryInvolved: form.injuryInvolved === 'yes',
       policeReportAvailable: form.policeReportAvailable === 'yes',
-      documents: docs.filter(d => uploadedDocs[d.key]).map(d => d.label + ' (' + uploadedDocs[d.key].file.name + ')'),
+      documents: docs.filter(d => uploadedDocs[d.key]).map(d =>
+        `${d.label} (${uploadedDocs[d.key].file.name}) [OCR: ${ocrResults[d.key]?.verification_status ?? 'not scanned'}]`
+      ),
     };
     const claim = await apiService.submitClaim(claimData);
     addClaim(claim);
@@ -349,6 +441,7 @@ export default function ClaimForm() {
                           </span>
                         </div>
                       ) : (
+                        <>
                         <div style={{
                           border:'1px solid rgba(16,185,129,0.4)', borderRadius:12, padding:'14px 20px',
                           background:'rgba(16,185,129,0.07)', display:'flex', alignItems:'center',
@@ -365,7 +458,7 @@ export default function ClaimForm() {
                               </div>
                             )}
                             <div>
-                              <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                              <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                                 {uploaded.file.name}
                               </div>
                               <div style={{ display:'flex', gap:8, marginTop:3, alignItems:'center' }}>
@@ -373,25 +466,53 @@ export default function ClaimForm() {
                                 <span style={{ fontSize:10, color:'var(--text-muted)' }}>•</span>
                                 <span style={{ fontSize:11, color:'var(--text-muted)' }}>{formatSize(uploaded.file.size)}</span>
                                 <span style={{ fontSize:10, color:'var(--text-muted)' }}>•</span>
-                                <span style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase' }}>
-                                  {uploaded.file.name.split('.').pop()}
-                                </span>
+                                <span style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase' }}>{uploaded.file.name.split('.').pop()}</span>
                               </div>
                             </div>
                           </div>
-                          <button
-                            onClick={() => removeFile(d.key)}
-                            title="Remove file"
-                            style={{ background:'rgba(239,68,68,0.12)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:8,
-                              width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center',
-                              cursor:'pointer', transition:'all 0.2s', flexShrink:0 }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.25)')}
-                            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.12)')}
-                          >
-                            <X size={14} color="#ef4444" />
-                          </button>
+                          <div style={{ display:'flex', gap:8, alignItems:'center', flexShrink:0 }}>
+                            <button
+                              onClick={() => handleOCRAnalyze(d.key)}
+                              disabled={ocrLoading[d.key]}
+                              title="Analyze document with OCR"
+                              style={{
+                                display:'flex', alignItems:'center', gap:5,
+                                fontSize:11, fontWeight:700,
+                                padding:'5px 10px', borderRadius:7,
+                                background: ocrResults[d.key] ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.15)',
+                                border: ocrResults[d.key] ? '1px solid rgba(16,185,129,0.4)' : '1px solid rgba(99,102,241,0.4)',
+                                color: ocrResults[d.key] ? '#10b981' : '#818cf8',
+                                cursor: ocrLoading[d.key] ? 'wait' : 'pointer',
+                                transition:'all 0.2s', whiteSpace:'nowrap',
+                              }}
+                            >
+                              {ocrLoading[d.key]
+                                ? <><div className="spinner" style={{ width:12, height:12, borderWidth:2 }} /> Scanning…</>
+                                : <><ScanLine size={12} /> {ocrResults[d.key] ? 'Re-scan' : 'Scan OCR'}</>
+                              }
+                            </button>
+                            <button
+                              onClick={() => removeFile(d.key)}
+                              title="Remove file"
+                              style={{ background:'rgba(239,68,68,0.12)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:8,
+                                width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center',
+                                cursor:'pointer', transition:'all 0.2s', flexShrink:0 }}
+                              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.25)')}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.12)')}
+                            >
+                              <X size={14} color="#ef4444" />
+                            </button>
+                          </div>
                         </div>
-                      )}
+                        {/* OCR Result Panel */}
+                        {ocrResults[d.key] && (
+                          <OCRPanel
+                            result={ocrResults[d.key]}
+                            onAutoFill={handleOCRAutoFill}
+                          />
+                        )}
+                      </>
+                    )}
                     </div>
                   );
                 })}

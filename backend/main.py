@@ -7,6 +7,7 @@ from database import init_db
 from routers.auth_router import router as auth_router
 from routers.claims_router import router as claims_router
 from routers.users_router import router as users_router
+from routers.ocr_router import router as ocr_router
 
 # ─── App Init ─────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ def startup():
 app.include_router(auth_router)
 app.include_router(claims_router)
 app.include_router(users_router)
+app.include_router(ocr_router)
 
 # ─── Health Check ─────────────────────────────────────────────────────────────
 
