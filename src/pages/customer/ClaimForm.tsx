@@ -1,11 +1,12 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Car, FileText, X, File, Image, FileBadge, ScanLine } from 'lucide-react';
+import { Upload, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Car, FileText, X, File, Image, FileBadge, ScanLine, ShieldCheck } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { CustomerSidebar } from '../../components/Sidebar';
 import { apiService } from '../../services/api';
 import { Claim } from '../../context/AppContext';
 import { OCRPanel, OCRResult } from '../../components/OCRPanel';
+import { DocumentVerificationPanel, DocumentVerificationResult } from '../../components/DocumentVerificationPanel';
 
 const STEPS = ['Customer Info', 'Policy Details', 'Claim Details', 'Documents', 'Result'];
 
@@ -58,10 +59,33 @@ export default function ClaimForm() {
   const [ocrResults, setOcrResults] = useState<Record<string, OCRResult>>({});
   const [ocrLoading, setOcrLoading] = useState<Record<string, boolean>>({});
 
+  // Deep verification state (runs automatically after OCR succeeds)
+  const [verificationResults, setVerificationResults] = useState<Record<string, DocumentVerificationResult>>({});
+  const [verificationLoading, setVerificationLoading] = useState<Record<string, boolean>>({});
+
+  // Form state — declared here so handleOCRAnalyze can reference it for claim context
+  const [form, setForm] = useState({
+    policyNumber: 'POL10025',
+    policyType: 'Vehicle Insurance',
+    policyStartDate: '2026-01-01',
+    policyEndDate: '2027-01-01',
+    claimType: '',
+    incidentDate: '',
+    incidentTime: '',
+    incidentLocation: '',
+    incidentDescription: '',
+    claimAmount: '',
+    damageSeverity: '',
+    injuryInvolved: '',
+    policeReportAvailable: '',
+  });
+
   const handleOCRAnalyze = useCallback(async (key: string) => {
     const doc = uploadedDocs[key];
     if (!doc) return;
     setOcrLoading(s => ({ ...s, [key]: true }));
+    // Clear any previous verification result
+    setVerificationResults(r => { const n = { ...r }; delete n[key]; return n; });
     try {
       const result = await apiService.analyzeDocument(doc.file, key);
 
@@ -91,6 +115,34 @@ export default function ClaimForm() {
           // Clear any previous error on full verification
           setUploadErrors(e => { const n = { ...e }; delete n[key]; return n; });
         }
+
+        // ── Deep verification: cross-validate fields against claim context
+        setVerificationLoading(s => ({ ...s, [key]: true }));
+        try {
+          const claimCtx = {
+            policy_number:    form.policyNumber,
+            policy_start_date: form.policyStartDate,
+            policy_end_date:   form.policyEndDate,
+            incident_date:     form.incidentDate,
+            incident_location: form.incidentLocation,
+            customer_name:     user?.name ?? '',
+            claim_type:        form.claimType,
+          };
+          const vResult = await apiService.verifyDocument(key, result.extracted_fields, claimCtx);
+          setVerificationResults(r => ({ ...r, [key]: vResult as DocumentVerificationResult }));
+
+          // Flag suspicious/invalid docs with a warning
+          if (vResult.overall_status === 'suspicious' || vResult.overall_status === 'invalid') {
+            setUploadErrors(e => ({
+              ...e,
+              [key]: `⚠ Authenticity check: ${vResult.overall_status.toUpperCase()} (trust ${vResult.trust_score}/100). Review flags before submitting.`,
+            }));
+          }
+        } catch {
+          // Verification failure is non-fatal — OCR result still stands
+        } finally {
+          setVerificationLoading(s => ({ ...s, [key]: false }));
+        }
       }
     } catch {
       setOcrResults(r => ({ ...r, [key]: {
@@ -105,7 +157,7 @@ export default function ClaimForm() {
     } finally {
       setOcrLoading(s => ({ ...s, [key]: false }));
     }
-  }, [uploadedDocs]);
+  }, [uploadedDocs, form, user]);
 
   const handleOCRAutoFill = useCallback((fields: Record<string, string>) => {
     const mapping: Record<string, string> = {
@@ -161,24 +213,9 @@ export default function ClaimForm() {
     return <File size={20} style={{ color: 'var(--primary-light)' }} />;
   };
 
-  const [form, setForm] = useState({
-    policyNumber: 'POL10025',
-    policyType: 'Vehicle Insurance',
-    policyStartDate: '2026-01-01',
-    policyEndDate: '2027-01-01',
-    claimType: '',
-    incidentDate: '',
-    incidentTime: '',
-    incidentLocation: '',
-    incidentDescription: '',
-    claimAmount: '',
-    damageSeverity: '',
-    injuryInvolved: '',
-    policeReportAvailable: '',
-  });
-
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
+
 
   const needsPoliceReport = ['Accident', 'Theft'].includes(form.claimType);
   const needsMedical = form.injuryInvolved === 'yes';
@@ -510,6 +547,22 @@ export default function ClaimForm() {
                             result={ocrResults[d.key]}
                             onAutoFill={handleOCRAutoFill}
                           />
+                        )}
+                        {/* Deep Verification Panel */}
+                        {verificationLoading[d.key] && (
+                          <div style={{
+                            marginTop: 10, padding: '12px 16px', borderRadius: 12,
+                            background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)',
+                            display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
+                            color: 'var(--primary-light)', fontWeight: 600,
+                          }}>
+                            <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+                            <ShieldCheck size={14} />
+                            Running authenticity verification…
+                          </div>
+                        )}
+                        {!verificationLoading[d.key] && verificationResults[d.key] && (
+                          <DocumentVerificationPanel result={verificationResults[d.key]} />
                         )}
                       </>
                     )}
