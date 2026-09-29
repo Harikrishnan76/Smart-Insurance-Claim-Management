@@ -434,7 +434,7 @@ export default function Landing() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 20 }}>
             <FeatureCard delay={0}    color="124,58,237"  icon={<ScanLine size={22} />}     title="AI OCR Document Scan"      desc="Automatically extract and verify details from policy documents, licenses, and reports using Tesseract-powered OCR." />
             <FeatureCard delay={0.05} color="6,182,212"   icon={<Shield size={22} />}       title="Authenticity Verification" desc="Cross-validate extracted document data against claim context — policy numbers, dates, names, and FIR details." />
-            <FeatureCard delay={0.1}  color="16,185,129"  icon={<AlertTriangle size={22} /> } title="Fraud Detection Engine"   desc="Detect suspicious patterns with per-check trust scoring. Get instant fraud flags and confidence scores (0–100)." />
+            <FeatureCard delay={0.1}  color="16,185,129"  icon={<AlertTriangle size={22} />} title="Fraud Detection Engine"   desc="Detect suspicious patterns with per-check trust scoring. Get instant fraud flags and confidence scores (0–100)." />
             <FeatureCard delay={0.15} color="245,158,11"  icon={<Activity size={22} />}     title="Real-Time Claim Tracking"  desc="Monitor your claim through every stage — from submission to approval. Get live status updates with a visual timeline." />
             <FeatureCard delay={0.2}  color="239,68,68"   icon={<BarChart3 size={22} />}    title="Risk Assessment"          desc="Automatic risk scoring based on claim type, amount, damage severity, and historical data for smarter decisions." />
             <FeatureCard delay={0.25} color="167,139,250" icon={<Lock size={22} />}         title="Secure & Compliant"       desc="End-to-end encrypted document storage. JWT-based authentication with role-based access control." />
@@ -546,8 +546,8 @@ export default function Landing() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 18 }}>
             {[
               { name: 'Arjun Mehta', role: 'Vehicle Insurance Customer', stars: 5, text: 'Got my accident claim approved in under 2 days. The AI OCR scanned all my documents in seconds and the trust score gave me confidence.' },
-              { name: 'Priya Nair', role: 'Fleet Owner', stars: 5, text: 'Managing claims for 12 vehicles was a nightmare before. ClaimSphere\'s document verification catches errors before they become problems.' },
-              { name: 'Ravi Shankar', role: 'Insurance Adjuster', stars: 5, text: 'The fraud detection flags are incredibly accurate. We\'ve reduced fraudulent claims by 40% since deploying this platform.' },
+              { name: 'Priya Nair', role: 'Fleet Owner', stars: 5, text: "Managing claims for 12 vehicles was a nightmare before. ClaimSphere's document verification catches errors before they become problems." },
+              { name: 'Ravi Shankar', role: 'Insurance Adjuster', stars: 5, text: "The fraud detection flags are incredibly accurate. We've reduced fraudulent claims by 40% since deploying this platform." },
             ].map(t => (
               <div key={t.name} style={{ background: 'rgba(13,15,26,0.8)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, padding: '24px 22px', transition: 'border-color 0.2s' }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(124,58,237,0.3)')}

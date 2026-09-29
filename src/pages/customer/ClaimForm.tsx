@@ -10,7 +10,11 @@ import { DocumentVerificationPanel, DocumentVerificationResult } from '../../com
 
 const STEPS = ['Customer Info', 'Policy Details', 'Claim Details', 'Documents', 'Result'];
 
-const CLAIM_TYPES = ['Accident', 'Theft', 'Fire', 'Natural Disaster', 'Other'];
+const CLAIM_TYPES_MAP: Record<string, string[]> = {
+  'Home Insurance': ['Fire Damage', 'Theft/Burglary', 'Natural Disaster', 'Structural Damage', 'Other'],
+  'Vehicle Insurance': ['Accident', 'Theft', 'Fire', 'Flood/Water Damage', 'Natural Disaster', 'Glass/Windshield Damage', 'Other'],
+  'Health Insurance': ['Hospitalization', 'Accidental Injury', 'Surgery', 'Emergency Treatment', 'Illness/Treatment', 'Diagnostic Tests', 'Maternity', 'Other']
+};
 const SEVERITY_OPTS = ['Minor', 'Moderate', 'Major'];
 
 function StepBar({ current }: { current: number }) {
@@ -213,8 +217,13 @@ export default function ClaimForm() {
     return <File size={20} style={{ color: 'var(--primary-light)' }} />;
   };
 
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(f => ({ ...f, [k]: e.target.value }));
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    if (k === 'policyType') {
+      setForm(f => ({ ...f, [k]: e.target.value, claimType: '' }));
+    } else {
+      setForm(f => ({ ...f, [k]: e.target.value }));
+    }
+  };
 
 
   const needsPoliceReport = ['Accident', 'Theft'].includes(form.claimType);
@@ -351,7 +360,7 @@ export default function ClaimForm() {
                     <label className="form-label">Claim Type *</label>
                     <select id="claim-type" className="form-control" value={form.claimType} onChange={set('claimType')}>
                       <option value="">Select Type</option>
-                      {CLAIM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      {(CLAIM_TYPES_MAP[form.policyType] || []).map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
